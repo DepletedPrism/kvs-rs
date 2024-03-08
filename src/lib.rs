@@ -8,8 +8,7 @@ use std::collections::BTreeMap;
 /// # Examples
 ///
 /// ```rust
-/// use kvs::KvStore;
-///
+/// # use kvs::KvStore;
 /// let mut map = KvStore::new();
 /// map.set("114".to_owned(), "514".to_owned());
 ///
@@ -27,17 +26,19 @@ impl KvStore {
         }
     }
 
-    /// Set a [`String`] key and a [`String`] value.
+    /// Set a [`String`] key to a [`String`] value.
+    /// 
+    /// The previous value will be overwritten when the key already exists.
     pub fn set(&mut self, key: String, value: String) {
         self.mp.insert(key, value);
     }
 
-    /// Get a [`String`] key's value.
+    /// Get the [`String`] key's corresponding value.
     pub fn get(&mut self, key: String) -> Option<String> {
         self.mp.get(&key).cloned()
     }
 
-    /// Remove a [`String`] key.
+    /// Remove a given [`String`] key.
     pub fn remove(&mut self, key: String) {
         self.mp.remove(&key);
     }

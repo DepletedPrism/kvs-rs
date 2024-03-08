@@ -2,7 +2,7 @@ use clap::{arg, command, Command};
 
 fn main() {
     // create command line interface by using builder API in clap
-    let matches = command!()
+    let matches = command!() // requires `cargo` feature
         .subcommands(&[
             Command::new("set")
                 .about("Set the value of a string key to a string")
