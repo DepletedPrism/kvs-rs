@@ -1,4 +1,4 @@
-use crate::{io::BufWriterPos, Error as KvsError, Result};
+use crate::{Error as KvsError, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -180,7 +180,7 @@ impl Drop for KvStore {
 
 struct DataFile {
     reader: BufReader<File>,
-    writer: BufWriterPos<File>,
+    writer: BufWriter<File>,
 }
 
 impl DataFile {
@@ -190,14 +190,16 @@ impl DataFile {
         // considering that a read-only empty file cannot be created by `OpenOptions`,
         // define the `writer` first to avoid resulting something like
         // "Os { code: 22, kind: InvalidInput, message: "Invalid argument" }"
-        let writer = BufWriterPos::new(
+        let mut writer = BufWriter::new(
             OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(false)
                 .open(&path)
                 .expect("unable to create `writer`"),
-        )?;
+        );
+        writer.seek(SeekFrom::End(0))
+            .expect("unable to seek from `SeekFrom::End(0)`");
 
         let reader = BufReader::new(
             OpenOptions::new()
@@ -210,10 +212,10 @@ impl DataFile {
     }
 
     fn append(&mut self, e: &Entry) -> Result<EntryPos> {
-        let pos = self.writer.pos;
+        let pos = self.writer.stream_position()?;
         serde_json::to_writer(&mut self.writer, e)?;
         self.writer.flush()?;
-        let sz = self.writer.pos - pos;
+        let sz = self.writer.stream_position()? - pos;
 
         Ok(EntryPos {
             pos,

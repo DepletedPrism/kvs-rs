@@ -2,7 +2,6 @@
 //! `kvs` is a simple key-value store engine written in Rust.
 
 mod error;
-mod io;
 mod store;
 
 // re-export names with pub use
