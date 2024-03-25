@@ -1,6 +1,8 @@
 use clap::{arg, command, Command};
+use kvs::KvStore;
+use std::{env::current_dir, process::exit};
 
-fn main() {
+fn main() -> kvs::Result<()> {
     // create command line interface by using builder API in clap
     let matches = command!() // requires `cargo` feature
         .subcommands(&[
@@ -17,17 +19,33 @@ fn main() {
         .get_matches();
 
     match matches.subcommand() {
-        Some(("set", _)) => {
-            eprintln!("unimplemented");
-            panic!();
+        Some(("set", sub_m)) => {
+            let key = sub_m.get_one::<String>("KEY").unwrap();
+            let value = sub_m.get_one::<String>("VALUE").unwrap();
+
+            let mut store = KvStore::open(current_dir()?)?;
+            store.set(key.clone(), value.clone())
         }
-        Some(("get", _)) => {
-            eprintln!("unimplemented");
-            panic!();
+        Some(("get", sub_m)) => {
+            let key = sub_m.get_one::<String>("KEY").unwrap();
+
+            let mut store = KvStore::open(current_dir()?)?;
+            let value = store.get(key.clone())?;
+            match value {
+                Some(v) => println!("{v}"),
+                None => println!("Key not found"),
+            }
+            Ok(())
         }
-        Some(("rm", _)) => {
-            eprintln!("unimplemented");
-            panic!();
+        Some(("rm", sub_m)) => {
+            let key = sub_m.get_one::<String>("KEY").unwrap();
+
+            let mut store = KvStore::open(current_dir()?)?;
+            if store.remove(key.clone()).is_err() {
+                println!("Key not found");
+                exit(1);
+            }
+            Ok(())
         }
         _ => panic!(),
     }
