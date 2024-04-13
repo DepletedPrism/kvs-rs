@@ -1,12 +1,13 @@
-#![deny(missing_docs)]
 //! `kvs` is a simple key-value store engine written in Rust.
 
+/// Protocol used for communicating between client and server.
+pub mod common;
+mod engines;
 mod error;
-mod store;
 
 // re-export names with pub use
+pub use crate::engines::{KvStore, KvsEngine, SledStore};
 pub use crate::error::Error;
-pub use crate::store::KvStore;
 
 /// to simplify concrete implementations
 pub type Result<T> = std::result::Result<T, Error>;

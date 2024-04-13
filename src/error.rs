@@ -3,6 +3,8 @@ use std::{error, fmt, io, num, string};
 /// Error type for `kvs`
 #[derive(Debug)]
 pub enum Error {
+    /// Error with a message
+    Message(String),
     /// std::io::Error
     Io(io::Error),
     /// serde_json::Error
@@ -12,7 +14,9 @@ pub enum Error {
     /// std::num::ParseIntError
     ParseInt(num::ParseIntError),
     /// No such a key
-    NonexistentKey(String),
+    NonexistentKey,
+    /// from Sled
+    Sled(sled::Error),
 }
 
 impl From<io::Error> for Error {
@@ -39,14 +43,22 @@ impl From<num::ParseIntError> for Error {
     }
 }
 
+impl From<sled::Error> for Error {
+    fn from(value: sled::Error) -> Self {
+        Error::Sled(value)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Message(message) => write!(f, "{}", message),
             Self::Io(e) => write!(f, "{}", e),
             Self::Json(e) => write!(f, "{}", e),
             Self::Utf8(e) => write!(f, "{}", e),
             Self::ParseInt(e) => write!(f, "{}", e),
-            Self::NonexistentKey(key) => write!(f, "No such a key named as `{}`", key),
+            Self::NonexistentKey => write!(f, "No such a key"),
+            Self::Sled(e) => write!(f, "{}", e),
         }
     }
 }
