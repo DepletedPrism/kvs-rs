@@ -108,9 +108,9 @@ impl KvsServer {
     where
         A: std::net::ToSocketAddrs + std::fmt::Display,
     {
-        let listener = TcpListener::bind(&addr).expect(
-            format!("unable to create TCP listener at {addr}").as_str(),
-        );
+        let listener = TcpListener::bind(&addr).unwrap_or_else(|_| {
+            panic!("unable to create TCP listener at {addr}")
+        });
         info!(self.logger, "server starts at {addr}.");
 
         for stream in listener.incoming() {
