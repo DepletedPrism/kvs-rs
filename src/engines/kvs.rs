@@ -1,40 +1,17 @@
-use crate::{Error as KvsError, KvsEngine, Result};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use serde_json::Deserializer;
+use crate::{
+    engines::kvs::store::{DataReader, DataWriter, Entry, EntryPos},
+    Error as KvsError, KvsEngine, Result,
+};
 use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
-    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    io::{BufReader, BufWriter, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
+mod store;
+
 const COMPACTION_THRESHOLD_BYTES: u64 = 1 << 20;
-
-#[derive(Deserialize, Serialize)]
-struct Entry {
-    key: String,
-    // removing a value is considered as setting it to an empty string
-    value: String,
-    timestamp: i64,
-}
-
-impl Entry {
-    fn new(key: String, value: String) -> Entry {
-        Entry {
-            key,
-            value,
-            timestamp: Utc::now().timestamp(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct EntryPos {
-    pos: u64,
-    sz: u64,
-    timestamp: i64,
-}
 
 /// Used for store key-value pairs.
 ///
@@ -65,6 +42,8 @@ impl KvStore {
         std::fs::create_dir_all(&dir_path)?;
 
         let mut uncompacted_bytes = 0;
+        let mut current_file = DataFile::new(&dir_path)?;
+
         let index: HashMap<String, EntryPos> =
             if let Ok(index_file) = File::open(dir_path.join("hint")) {
                 let buf_reader = BufReader::new(index_file);
@@ -72,46 +51,15 @@ impl KvStore {
                     .expect("unable to parse file `hint` into a `HashMap`")
             } else {
                 // build HashMap from `data` when there is no `hint`
-                Self::hint_from_data(&dir_path, &mut uncompacted_bytes)?
+                current_file.reader.generate_index(&mut uncompacted_bytes)?
             };
-        let current_file = DataFile::new(&dir_path)?;
+
         Ok(KvStore {
             dir_path,
             index,
             current_file,
             uncompacted_bytes,
         })
-    }
-
-    // generate an in-memory key index from `data`
-    fn hint_from_data(
-        dir_path: impl Into<PathBuf>,
-        uncompacted_bytes: &mut u64,
-    ) -> Result<HashMap<String, EntryPos>> {
-        let mut index = HashMap::new();
-        if let Ok(data_file) = File::open(dir_path.into().join("data")) {
-            let mut reader = BufReader::new(data_file);
-            reader.seek(SeekFrom::Start(0))?;
-            let mut stream =
-                Deserializer::from_reader(reader).into_iter::<Entry>();
-            let mut pos = 0;
-            while let Some(entry) = stream.next() {
-                let next_pos = stream.byte_offset() as u64;
-                let entry = entry?;
-                if let Some(old_entry) = index.insert(
-                    entry.key,
-                    EntryPos {
-                        pos,
-                        sz: next_pos - pos,
-                        timestamp: entry.timestamp,
-                    },
-                ) {
-                    *uncompacted_bytes += old_entry.sz;
-                }
-                pos = next_pos;
-            }
-        }
-        Ok(index)
     }
 
     // compact data to reduce meaningless disk cost
@@ -124,7 +72,7 @@ impl KvStore {
         let mut removed_key = Vec::new();
 
         for p in self.index.values_mut() {
-            let e = self.current_file.locate_entry(p)?;
+            let e = self.current_file.locate_entry(p.pos)?;
             if p.timestamp == e.timestamp {
                 if e.value.is_empty() {
                     removed_key.push(e.key);
@@ -187,7 +135,7 @@ impl KvsEngine for KvStore {
     /// Get the [`String`] key's corresponding value.
     fn get(&mut self, key: String) -> Result<Option<String>> {
         if let Some(p) = self.index.get(&key) {
-            let Entry { value, .. } = self.current_file.locate_entry(p)?;
+            let (_, value) = self.current_file.locate_value(p.pos)?;
             if !value.is_empty() {
                 Ok(Some(value))
             } else {
@@ -208,15 +156,14 @@ impl Drop for KvStore {
             File::create(self.dir_path.join("hint"))
                 .expect("fail to create file `hint`"),
         );
-
         serde_json::to_writer(buf_writer, &self.index)
             .expect("fail to write serialized data into file `hint`");
     }
 }
 
 struct DataFile {
-    reader: BufReader<File>,
-    writer: BufWriter<File>,
+    writer: DataWriter,
+    reader: DataReader,
 }
 
 impl DataFile {
@@ -244,28 +191,21 @@ impl DataFile {
                 .expect("unable to create `reader`"),
         );
 
-        Ok(DataFile { reader, writer })
-    }
-
-    fn append(&mut self, e: &Entry) -> Result<EntryPos> {
-        let pos = self.writer.stream_position()?;
-        serde_json::to_writer(&mut self.writer, e)?;
-        self.writer.flush()?;
-        let sz = self.writer.stream_position()? - pos;
-
-        Ok(EntryPos {
-            pos,
-            sz,
-            timestamp: e.timestamp,
+        Ok(DataFile {
+            writer: DataWriter(writer),
+            reader: DataReader(reader),
         })
     }
 
-    fn locate_entry(&mut self, p: &EntryPos) -> Result<Entry> {
-        let mut buf = vec![0; p.sz as usize];
+    fn append(&mut self, e: &Entry) -> Result<EntryPos> {
+        self.writer.append(e)
+    }
 
-        self.reader.seek(SeekFrom::Start(p.pos))?;
-        self.reader.read_exact(&mut buf)?;
+    fn locate_value(&mut self, pos: u64) -> Result<(i64, String)> {
+        self.reader.locate_value(pos)
+    }
 
-        Ok(serde_json::from_slice(buf.as_slice())?)
+    fn locate_entry(&mut self, pos: u64) -> Result<Entry> {
+        self.reader.locate_entry(pos)
     }
 }
