@@ -19,21 +19,27 @@ impl Deref for SledStore {
     }
 }
 
+impl Clone for SledStore {
+    fn clone(&self) -> Self {
+        SledStore(self.0.clone())
+    }
+}
+
 impl KvsEngine for SledStore {
-    fn set(&mut self, key: String, value: String) -> Result<()> {
+    fn set(&self, key: String, value: String) -> Result<()> {
         self.insert(key, value.into_bytes())?;
         self.flush()?;
         Ok(())
     }
 
-    fn get(&mut self, key: String) -> Result<Option<String>> {
+    fn get(&self, key: String) -> Result<Option<String>> {
         Ok(sled::Tree::get(self, key)?
             .map(|ivec| ivec.as_ref().to_vec())
             .map(String::from_utf8)
             .transpose()?)
     }
 
-    fn remove(&mut self, key: String) -> Result<()> {
+    fn remove(&self, key: String) -> Result<()> {
         sled::Tree::remove(self, key)?.ok_or(Error::NonexistentKey)?;
         self.flush()?;
         Ok(())

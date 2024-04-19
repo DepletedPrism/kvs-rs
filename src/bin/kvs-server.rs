@@ -1,4 +1,4 @@
-use clap::{command, Arg, ArgMatches};
+use clap::{command, Arg};
 use kvs::{
     common::{Request, Response},
     KvStore, KvsEngine, SledStore,
@@ -9,13 +9,14 @@ use std::{
     env,
     io::{BufReader, BufWriter, Read, Write},
     net::{TcpListener, TcpStream},
-    path::PathBuf,
 };
 
 fn main() -> kvs::Result<()> {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
+
+    let server = slog::Logger::root(drain, o!());
 
     let matches = command!()
         .about("Set IP address, port and which engine to run")
@@ -35,72 +36,63 @@ fn main() -> kvs::Result<()> {
     let addr = matches
         .get_one::<String>("ip_port")
         .map_or(String::from("127.0.0.1:4000"), |x| x.clone());
+    let engine = matches
+        .get_one::<String>("engine_name")
+        .map_or(String::from("kvs"), |x| x.clone());
+    let version = std::env!("CARGO_PKG_VERSION");
 
-    KvsServer::new(&matches, slog::Logger::root(drain, o!()))?.run(addr)
-}
-
-struct KvsServer {
-    logger: slog::Logger,
-    store: Box<dyn KvsEngine>,
-}
-
-impl KvsServer {
-    fn get_store(
-        engine: &str,
-        server: &slog::Logger,
-    ) -> kvs::Result<Box<dyn KvsEngine>> {
-        let identify = |path: PathBuf, current: &str| -> kvs::Result<()> {
-            let path = path.join("identity");
-            if let Ok(file) = std::fs::File::open(&path) {
-                let mut id = String::new();
-                let mut id_reader = BufReader::new(file);
-                id_reader.read_to_string(&mut id)?;
-                if id != current {
-                    error!(
-                        server,
-                        "select `{current}` as engine, but pervious data is \
-                        persisted with a different engine {id}"
-                    );
-                    std::process::exit(1);
-                }
-            } else {
-                let mut id_writer =
-                    BufWriter::new(std::fs::File::create_new(path)?);
-                id_writer.write_all(current.as_bytes())?;
-            }
-            Ok(())
-        };
-
-        let path = env::current_dir()?.join(".kv_data");
-        std::fs::create_dir_all(&path)?;
-        Ok(match engine {
-            "kvs" => {
-                identify(path.clone(), "kvs")?;
-                Box::new(KvStore::open(path.clone())?)
-            }
-            "sled" => {
-                identify(path.clone(), "sled")?;
-                Box::new(SledStore::open(path.clone())?)
-            }
-            _ => {
-                error!(server, "select a nonexistent engine");
-                std::process::exit(1)
-            }
-        })
+    let path = env::current_dir()?.join(".kv_data");
+    std::fs::create_dir_all(&path)?;
+    match engine.as_str() {
+        "kvs" => {
+            identify_engine(path.as_path(), "kvs", &server)?;
+            info!(server, "version v{version} with engine {engine}.");
+            KvsServer::new(server, KvStore::open(path.clone())?)?.run(addr)
+        }
+        "sled" => {
+            identify_engine(path.as_path(), "sled", &server)?;
+            info!(server, "version v{version} with engine {engine}.");
+            KvsServer::new(server, SledStore::open(path.clone())?)?.run(addr)
+        }
+        _ => {
+            error!(server, "select a nonexistent engine");
+            std::process::exit(1)
+        }
     }
+}
 
-    fn new(
-        matches: &ArgMatches,
-        logger: slog::Logger,
-    ) -> kvs::Result<KvsServer> {
-        let engine = matches
-            .get_one::<String>("engine_name")
-            .map_or(String::from("kvs"), |x| x.clone());
-        let version = std::env!("CARGO_PKG_VERSION");
+fn identify_engine(
+    path: &std::path::Path,
+    current: &str,
+    logger: &slog::Logger,
+) -> kvs::Result<()> {
+    let path = path.join("identity");
+    if let Ok(file) = std::fs::File::open(&path) {
+        let mut id = String::new();
+        let mut id_reader = BufReader::new(file);
+        id_reader.read_to_string(&mut id)?;
+        if id != current {
+            error!(
+                logger,
+                "select `{current}` as engine, but pervious data is persisted \
+                with a different engine {id}"
+            );
+            std::process::exit(1);
+        }
+    } else {
+        let mut id_writer = BufWriter::new(std::fs::File::create_new(path)?);
+        id_writer.write_all(current.as_bytes())?;
+    }
+    Ok(())
+}
 
-        let store = Self::get_store(&engine, &logger)?;
-        info!(logger, "version v{version} with engine {engine}.");
+struct KvsServer<E: KvsEngine> {
+    logger: slog::Logger,
+    store: E,
+}
 
+impl<E: KvsEngine> KvsServer<E> {
+    fn new(logger: slog::Logger, store: E) -> kvs::Result<KvsServer<E>> {
         Ok(KvsServer { logger, store })
     }
 

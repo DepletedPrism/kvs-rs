@@ -26,13 +26,13 @@ fn main() -> kvs::Result<()> {
             let key = sub_m.get_one::<String>("KEY").unwrap();
             let value = sub_m.get_one::<String>("VALUE").unwrap();
 
-            let mut store = KvStore::open(path)?;
+            let store = KvStore::open(path)?;
             store.set(key.clone(), value.clone())
         }
         Some(("get", sub_m)) => {
             let key = sub_m.get_one::<String>("KEY").unwrap();
 
-            let mut store = KvStore::open(path)?;
+            let store = KvStore::open(path)?;
             let value = store.get(key.clone())?;
             match value {
                 Some(v) => println!("{v}"),
@@ -43,7 +43,7 @@ fn main() -> kvs::Result<()> {
         Some(("rm", sub_m)) => {
             let key = sub_m.get_one::<String>("KEY").unwrap();
 
-            let mut store = KvStore::open(path)?;
+            let store = KvStore::open(path)?;
             if store.remove(key.clone()).is_err() {
                 println!("Key not found");
                 std::process::exit(1);
