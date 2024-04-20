@@ -4,6 +4,8 @@
 pub mod common;
 mod engines;
 mod error;
+/// Thread pool implementations
+pub mod thread_pool;
 
 // re-export names with pub use
 pub use crate::engines::{KvStore, KvsEngine, SledStore};
